@@ -2,47 +2,93 @@
   <div class="job-map-container">
     <!-- Map Header / Filter Controls -->
     <div class="map-controls">
+      <!-- Search Input -->
       <div class="search-box">
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search companies (e.g. Google, Amazon)..."
+          placeholder="Search companies by name or address..."
           class="search-input"
         />
       </div>
 
+      <!-- Radius & Location Controls -->
       <div class="filter-actions">
-        <label class="radius-label">
-          Radius:
-          <select v-model="selectedRadius" @change="fetchCompanies" class="radius-select">
-            <option :value="10">10 km</option>
-            <option :value="25">25 km</option>
-            <option :value="50">50 km</option>
-            <option :value="100">100 km</option>
-            <option :value="0">All Companies</option>
-          </select>
-        </label>
+        <!-- Manual Radius Input -->
+        <div class="radius-control-box">
+          <span class="control-label">Radius:</span>
+          <div class="manual-input-group">
+            <input
+              v-model.number="manualRadius"
+              type="number"
+              min="1"
+              max="20000"
+              placeholder="e.g. 30"
+              @keyup.enter="applyManualRadius"
+              class="manual-radius-input"
+            />
+            <span class="input-suffix">km</span>
+            <button
+              @click="applyManualRadius"
+              class="apply-btn"
+              title="Apply manual radius"
+            >
+              Apply
+            </button>
+          </div>
 
-        <button @click="locateUser" :disabled="locating" class="locate-btn" title="Center on my location">
+          <!-- Quick Presets -->
+          <div class="preset-group">
+            <button
+              v-for="p in presets"
+              :key="p.value"
+              :class="['preset-chip', { active: !showAll && manualRadius === p.value }]"
+              @click="setPresetRadius(p.value)"
+            >
+              {{ p.label }}
+            </button>
+            <button
+              :class="['preset-chip', { active: showAll }]"
+              @click="setAllCompanies"
+            >
+              All
+            </button>
+          </div>
+        </div>
+
+        <!-- My Location Button -->
+        <button
+          @click="locateUser"
+          :disabled="locating"
+          class="locate-btn"
+          title="Center on my current location"
+        >
           <span v-if="locating">📍 Locating...</span>
           <span v-else>🎯 My Location</span>
         </button>
       </div>
     </div>
 
-    <!-- Status & Notification Notice -->
+    <!-- Status Notice Banner -->
     <div v-if="noticeMessage" class="map-notice" :class="noticeType">
       <span>{{ noticeMessage }}</span>
       <button @click="noticeMessage = ''" class="close-notice-btn">✕</button>
     </div>
 
-    <!-- Leaflet Map Container -->
+    <!-- Leaflet Map Canvas -->
     <div ref="mapContainer" class="leaflet-map-element"></div>
 
     <!-- Map Footer Info -->
     <div class="map-footer">
-      <span>Showing <strong>{{ filteredCompanies.length }}</strong> company locations</span>
-      <span v-if="userCoords">📍 Centered near your coordinates ({{ userCoords.lat.toFixed(3) }}, {{ userCoords.lng.toFixed(3) }})</span>
+      <span>
+        Showing <strong>{{ filteredCompanies.length }}</strong> company locations
+        <span v-if="!showAll && manualRadius > 0" class="active-radius-tag">
+          (within {{ manualRadius }} km)
+        </span>
+      </span>
+      <span v-if="userCoords">
+        📍 Centered at {{ userCoords.lat.toFixed(3) }}, {{ userCoords.lng.toFixed(3) }}
+      </span>
       <span v-else>🌐 Displaying global hub</span>
     </div>
   </div>
@@ -72,14 +118,24 @@ const mapContainer = ref(null);
 let map = null;
 let markersLayer = null;
 let userMarker = null;
+let radiusCircle = null;
 
 const companies = ref([]);
 const searchQuery = ref("");
+const manualRadius = ref(50);
 const selectedRadius = ref(50);
+const showAll = ref(false);
 const locating = ref(false);
 const userCoords = ref(null);
 const noticeMessage = ref("");
 const noticeType = ref("info");
+
+const presets = [
+  { label: "10 km", value: 10 },
+  { label: "25 km", value: 25 },
+  { label: "50 km", value: 50 },
+  { label: "100 km", value: 100 },
+];
 
 // Default center: Bengaluru Tech Hub (12.9716, 77.5946)
 const DEFAULT_CENTER = [12.9716, 77.5946];
@@ -94,7 +150,7 @@ const userLocationIcon = L.divIcon({
 });
 
 // Custom company pin icon
-const createCompanyIcon = (name) => {
+const createCompanyIcon = () => {
   return L.divIcon({
     className: "custom-company-marker",
     html: `<div class="company-pin"><span class="pin-badge">💼</span></div>`,
@@ -114,13 +170,36 @@ const filteredCompanies = computed(() => {
   );
 });
 
+// Draw / update radius circle on map
+const updateRadiusCircle = () => {
+  if (!map) return;
+
+  if (radiusCircle) {
+    map.removeLayer(radiusCircle);
+    radiusCircle = null;
+  }
+
+  if (userCoords.value && !showAll.value && selectedRadius.value > 0) {
+    radiusCircle = L.circle([userCoords.value.lat, userCoords.value.lng], {
+      color: "#0284c7",
+      fillColor: "#38bdf8",
+      fillOpacity: 0.1,
+      weight: 2,
+      dashArray: "6, 6",
+      radius: selectedRadius.value * 1000, // Leaflet takes radius in meters
+    }).addTo(map);
+
+    map.fitBounds(radiusCircle.getBounds(), { padding: [35, 35], maxZoom: 14 });
+  }
+};
+
 // Fetch companies from /api/companies/nearby or /api/companies
 const fetchCompanies = async () => {
   try {
     let url = `${authStore.apiBaseUrl}/companies`;
     const params = {};
 
-    if (userCoords.value && selectedRadius.value > 0) {
+    if (userCoords.value && !showAll.value && selectedRadius.value > 0) {
       url = `${authStore.apiBaseUrl}/companies/nearby`;
       params.lat = userCoords.value.lat;
       params.lng = userCoords.value.lng;
@@ -131,6 +210,7 @@ const fetchCompanies = async () => {
     if (res.data.success) {
       companies.value = res.data.data || [];
       renderMarkers();
+      updateRadiusCircle();
     }
   } catch (err) {
     console.error("Failed to fetch companies:", err);
@@ -139,13 +219,49 @@ const fetchCompanies = async () => {
   }
 };
 
+// Apply custom manual radius entered in input
+const applyManualRadius = () => {
+  if (!manualRadius.value || manualRadius.value <= 0) {
+    noticeMessage.value = "Please enter a valid radius greater than 0 km.";
+    noticeType.value = "warning";
+    return;
+  }
+  showAll.value = false;
+  selectedRadius.value = manualRadius.value;
+  noticeMessage.value = `Applied custom search radius of ${manualRadius.value} km.`;
+  noticeType.value = "info";
+  fetchCompanies();
+};
+
+// Set preset radius
+const setPresetRadius = (val) => {
+  manualRadius.value = val;
+  showAll.value = false;
+  selectedRadius.value = val;
+  fetchCompanies();
+};
+
+// Show all companies without distance filter
+const setAllCompanies = () => {
+  showAll.value = true;
+  selectedRadius.value = 0;
+  if (radiusCircle && map) {
+    map.removeLayer(radiusCircle);
+    radiusCircle = null;
+  }
+  fetchCompanies();
+};
+
 // Render pins on Leaflet map
 const renderMarkers = () => {
   if (!map || !markersLayer) return;
 
   markersLayer.clearLayers();
-
   const bounds = L.latLngBounds();
+
+  if (userCoords.value) {
+    bounds.extend([userCoords.value.lat, userCoords.value.lng]);
+  }
 
   filteredCompanies.value.forEach((comp) => {
     if (comp.lat == null || comp.lng == null) return;
@@ -154,7 +270,7 @@ const renderMarkers = () => {
     bounds.extend(latLng);
 
     const marker = L.marker(latLng, {
-      icon: createCompanyIcon(comp.name),
+      icon: createCompanyIcon(),
     });
 
     const jobsHtml =
@@ -217,8 +333,8 @@ const renderMarkers = () => {
     markersLayer.addLayer(marker);
   });
 
-  // Fit bounds if markers exist and not manually zoomed
-  if (filteredCompanies.value.length > 0 && !userCoords.value) {
+  // Fit bounds if no user circle exists
+  if (!userCoords.value && filteredCompanies.value.length > 0) {
     map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
   }
 };
@@ -228,6 +344,7 @@ const locateUser = () => {
   if (!navigator.geolocation) {
     noticeMessage.value = "Geolocation is not supported by your browser.";
     noticeType.value = "warning";
+    fetchCompanies();
     return;
   }
 
@@ -241,11 +358,11 @@ const locateUser = () => {
       const { latitude, longitude } = position.coords;
       userCoords.value = { lat: latitude, lng: longitude };
 
-      noticeMessage.value = "Location detected! Showing nearby companies.";
+      noticeMessage.value = `Location detected (${latitude.toFixed(2)}, ${longitude.toFixed(2)})! Showing companies within ${manualRadius.value} km.`;
       noticeType.value = "success";
 
       if (map) {
-        map.setView([latitude, longitude], 13);
+        map.setView([latitude, longitude], 12);
 
         if (userMarker) {
           userMarker.setLatLng([latitude, longitude]);
@@ -271,7 +388,7 @@ const locateUser = () => {
   );
 };
 
-// Watch for search query change to update pins
+// Watch search query to dynamically filter markers
 watch(searchQuery, () => {
   renderMarkers();
 });
@@ -293,7 +410,7 @@ onMounted(() => {
 
   markersLayer = L.layerGroup().addTo(map);
 
-  // Attempt automatic geolocation on load
+  // Locate user on load
   locateUser();
 });
 
@@ -490,7 +607,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 1rem;
   padding: 1rem 1.25rem;
   background: #f8fafc;
   border-bottom: 1px solid #e2e8f0;
@@ -498,7 +615,7 @@ onUnmounted(() => {
 
 .search-box {
   flex: 1;
-  min-width: 240px;
+  min-width: 250px;
 }
 
 .search-input {
@@ -517,39 +634,106 @@ onUnmounted(() => {
 
 .filter-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
-.radius-label {
+.radius-control-box {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.control-label {
   font-size: 0.88rem;
   font-weight: 600;
   color: #475569;
 }
 
-.radius-select {
-  padding: 0.55rem 0.75rem;
+.manual-input-group {
+  display: flex;
+  align-items: center;
+  background: white;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
-  font-size: 0.88rem;
-  background: white;
-  cursor: pointer;
+  overflow: hidden;
+}
+
+.manual-radius-input {
+  width: 65px;
+  padding: 0.45rem 0.5rem;
+  border: none;
+  font-size: 0.9rem;
   outline: none;
+  font-weight: 600;
+  color: #0f172a;
+  text-align: center;
+}
+
+.input-suffix {
+  font-size: 0.82rem;
+  color: #64748b;
+  font-weight: 600;
+  padding-right: 0.4rem;
+}
+
+.apply-btn {
+  background-color: #0284c7;
+  color: white;
+  border: none;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.apply-btn:hover {
+  background-color: #0369a1;
+}
+
+.preset-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.preset-chip {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  padding: 0.35rem 0.65rem;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.preset-chip:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.preset-chip.active {
+  background: #0284c7;
+  border-color: #0284c7;
+  color: white;
 }
 
 .locate-btn {
   background-color: #0f172a;
   color: #ffffff;
   border: none;
-  padding: 0.55rem 1rem;
+  padding: 0.5rem 1rem;
   border-radius: 6px;
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.2s;
+  white-space: nowrap;
 }
 
 .locate-btn:hover:not(:disabled) {
@@ -615,5 +799,11 @@ onUnmounted(() => {
   border-top: 1px solid #e2e8f0;
   font-size: 0.82rem;
   color: #64748b;
+}
+
+.active-radius-tag {
+  color: #0284c7;
+  font-weight: 600;
+  margin-left: 4px;
 }
 </style>
