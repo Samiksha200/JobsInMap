@@ -1,118 +1,104 @@
 ﻿<template>
-  <div class="page-container">
-    <div class="card">
-      <h1>Welcome to MapJobs</h1>
-      <p class="subtitle">Discover jobs mapped to your preferred locations.</p>
-      
-      <div class="status-box">
-        <h3>System Configuration</h3>
-        <p><strong>API Base URL:</strong> <code>{{ authStore.apiBaseUrl }}</code></p>
-        <button @click="checkBackendHealth" :disabled="loading" class="btn">
-          {{ loading ? "Testing..." : "Test Backend Connection" }}
-        </button>
-        <div v-if="healthStatus" class="health-result" :class="healthStatus.status">
-          <strong>Backend Status:</strong> {{ healthStatus.status }} ({{ healthStatus.service }})
-        </div>
+  <div class="home-container">
+    <!-- Hero Banner -->
+    <header class="hero-section">
+      <h1 class="hero-title">🗺️ Explore Jobs on the Map</h1>
+      <p class="hero-subtitle">
+        Find top tech companies hiring near you. Click any pin to explore open roles and apply directly on their career page.
+      </p>
+    </header>
+
+    <!-- Interactive Leaflet Map -->
+    <section class="map-section">
+      <JobMap />
+    </section>
+
+    <!-- Quick Features Info -->
+    <section class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">📍</div>
+        <h3>Location-Based Matching</h3>
+        <p>Discover tech headquarters, offices, and engineering centers within your preferred commute radius.</p>
       </div>
-    </div>
+      <div class="feature-card">
+        <div class="feature-icon">💼</div>
+        <h3>Direct Career Portals</h3>
+        <p>Skip the middleman. Apply directly to verified company career portals with one click.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Real-Time Updates</h3>
+        <p>Interactive spatial mapping powered by OpenStreetMap and MongoDB geospatial indexing.</p>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { ref } from "vue";
-import { useAuthStore } from "../store/auth.js";
-import axios from "axios";
-
-const authStore = useAuthStore();
-const healthStatus = ref(null);
-const loading = ref(false);
-
-const checkBackendHealth = async () => {
-  loading.value = true;
-  healthStatus.value = null;
-  try {
-    const res = await axios.get(`${authStore.apiBaseUrl}/health`);
-    healthStatus.value = res.data;
-  } catch (err) {
-    healthStatus.value = {
-      status: "error",
-      service: err.message || "Failed to reach backend",
-    };
-  } finally {
-    loading.value = false;
-  }
-};
+import JobMap from "../components/JobMap.vue";
 </script>
 
 <style scoped>
-.page-container {
-  max-width: 800px;
-  margin: 2rem auto;
-  padding: 0 1rem;
+.home-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
 }
-.card {
+
+.hero-section {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.hero-title {
+  font-size: 2.2rem;
+  color: #0f172a;
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.hero-subtitle {
+  font-size: 1.05rem;
+  color: #64748b;
+  max-width: 680px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+.map-section {
+  margin-bottom: 2.5rem;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.feature-card {
   background: white;
-  padding: 2.5rem;
+  padding: 1.5rem;
   border-radius: 12px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   text-align: center;
 }
-h1 {
-  font-size: 2.2rem;
+
+.feature-icon {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.feature-card h3 {
+  font-size: 1.1rem;
   color: #0f172a;
   margin-bottom: 0.5rem;
 }
-.subtitle {
+
+.feature-card p {
+  font-size: 0.9rem;
   color: #64748b;
-  font-size: 1.1rem;
-  margin-bottom: 2rem;
-}
-.status-box {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 1.5rem;
-  text-align: left;
-}
-.status-box h3 {
-  margin-top: 0;
-  color: #334155;
-}
-code {
-  background: #e2e8f0;
-  padding: 0.2rem 0.4rem;
-  border-radius: 4px;
-}
-.btn {
-  margin-top: 1rem;
-  background-color: #0284c7;
-  color: white;
-  border: none;
-  padding: 0.6rem 1.2rem;
-  font-size: 0.95rem;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 600;
-  transition: background-color 0.2s;
-}
-.btn:hover:not(:disabled) {
-  background-color: #0369a1;
-}
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.health-result {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  border-radius: 6px;
-}
-.health-result.ok {
-  background-color: #dcfce7;
-  color: #166534;
-}
-.health-result.error {
-  background-color: #fee2e2;
-  color: #991b1b;
+  line-height: 1.5;
 }
 </style>
